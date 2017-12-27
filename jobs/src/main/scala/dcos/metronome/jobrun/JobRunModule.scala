@@ -1,9 +1,9 @@
 package dcos.metronome.jobrun
 
-import akka.actor.{ ActorContext, ActorSystem, Props }
+import akka.actor.{ActorContext, ActorSystem, Props}
 import dcos.metronome.behavior.Behavior
-import dcos.metronome.jobrun.impl.{ JobRunExecutorActor, JobRunPersistenceActor, JobRunServiceActor, JobRunServiceDelegate }
-import dcos.metronome.model.{ JobResult, JobRun, JobRunId }
+import dcos.metronome.jobrun.impl.{JobRunExecutorActor, JobRunPersistenceActor, JobRunServiceActor, JobRunServiceDelegate}
+import dcos.metronome.model.{JobResult, JobRun, JobRunId}
 import dcos.metronome.repository.Repository
 import dcos.metronome.utils.time.Clock
 import mesosphere.marathon.MarathonSchedulerDriverHolder
@@ -12,6 +12,7 @@ import mesosphere.marathon.core.task.tracker.TaskTracker
 import mesosphere.marathon.core.leadership.LeadershipModule
 
 import scala.concurrent.Promise
+import scala.concurrent.duration.Duration
 
 class JobRunModule(
     config:           JobRunConfig,
@@ -27,10 +28,10 @@ class JobRunModule(
 
   import com.softwaremill.macwire._
 
-  private[this] def executorFactory(jobRun: JobRun, promise: Promise[JobResult]): Props = {
+  private[this] def executorFactory(jobRun: JobRun, startingDeadline: Option[Duration], promise: Promise[JobResult]): Props = {
     val persistenceActorFactory = (id: JobRunId, context: ActorContext) =>
       context.actorOf(JobRunPersistenceActor.props(id, jobRunRepository, behavior))
-    JobRunExecutorActor.props(jobRun, promise, persistenceActorFactory,
+    JobRunExecutorActor.props(jobRun, startingDeadline, promise, persistenceActorFactory,
       launchQueue, taskTracker, driverHolder, clock, behavior)
   }
 

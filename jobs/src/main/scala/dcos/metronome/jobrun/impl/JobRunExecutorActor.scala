@@ -1,11 +1,11 @@
 package dcos.metronome.jobrun.impl
 
-import akka.actor.{ Actor, ActorContext, ActorLogging, ActorRef, Props, Stash }
-import dcos.metronome.{ JobRunFailed, UnexpectedTaskState }
-import dcos.metronome.behavior.{ ActorBehavior, Behavior }
+import akka.actor.{Actor, ActorContext, ActorLogging, ActorRef, Props, Stash}
+import dcos.metronome.{JobRunFailed, UnexpectedTaskState}
+import dcos.metronome.behavior.{ActorBehavior, Behavior}
 import dcos.metronome.eventbus.TaskStateChangedEvent
 import dcos.metronome.jobrun.StartedJobRun
-import dcos.metronome.model.{ JobResult, JobRun, JobRunId, JobRunStatus, JobRunTask, RestartPolicy }
+import dcos.metronome.model.{JobResult, JobRun, JobRunId, JobRunStatus, JobRunTask, RestartPolicy}
 import dcos.metronome.scheduler.TaskState
 import dcos.metronome.utils.time.Clock
 import mesosphere.marathon.MarathonSchedulerDriverHolder
@@ -13,8 +13,10 @@ import mesosphere.marathon.core.launchqueue.LaunchQueue
 import mesosphere.marathon.core.task.Task
 import mesosphere.marathon.core.task.Task.LaunchedEphemeral
 import mesosphere.marathon.core.task.tracker.TaskTracker
+import org.joda.time.Seconds
 
 import scala.concurrent.Promise
+import scala.concurrent.duration.Duration
 
 /**
   * Handles one job run from start until the job either completes successful or failed.
@@ -23,6 +25,7 @@ import scala.concurrent.Promise
   */
 class JobRunExecutorActor(
     run:                        JobRun,
+    startingDeadline:           Option[Duration],
     promise:                    Promise[JobResult],
     persistenceActorRefFactory: (JobRunId, ActorContext) => ActorRef,
     launchQueue:                LaunchQueue,
@@ -80,6 +83,17 @@ class JobRunExecutorActor(
     addTaskToLaunchQueue()
 
     context.become(starting)
+  }
+
+  def scheduleStartingDeadlineTimeout(): Unit = {
+    import scala.concurrent.duration._
+
+    startingDeadline.foreach { deadline =>
+      val now = clock.now()
+      val from = run.createdAt.plus(deadline.toMillis)
+      val timeout = Seconds.secondsBetween(now, from).getSeconds.seconds
+      context.system.scheduler.scheduleOnce(timeout, self, StartTimeout)
+    }
   }
 
   def addTaskToLaunchQueue(): Unit = {
@@ -207,6 +221,12 @@ class JobRunExecutorActor(
     case _ => stash()
   }
 
+  def receiveStartTimeout: Receive = {
+    case StartTimeout =>
+      log.info(s"Start timed out for JobRun ${jobRun.id} with deadline ${startingDeadline.get}")
+      becomeAborting()
+  }
+
   def receiveKill: Receive = {
     case KillCurrentJobRun =>
       log.info(s"Kill execution of JobRun ${jobRun.id}")
@@ -214,7 +234,7 @@ class JobRunExecutorActor(
   }
 
   def creating: Receive = around {
-    receiveKill orElse {
+    receiveKill orElse receiveStartTimeout orElse {
       case JobRunCreated(_, updatedJobRun, _) =>
         becomeStarting(updatedJobRun)
 
@@ -224,7 +244,7 @@ class JobRunExecutorActor(
   }
 
   def starting: Receive = around {
-    receiveKill orElse {
+    receiveKill orElse receiveStartTimeout orElse {
       case ForwardStatusUpdate(update) if isActive(update.taskState) =>
         becomeActive(update)
 
@@ -247,7 +267,7 @@ class JobRunExecutorActor(
   }
 
   def active: Receive = around {
-    receiveKill orElse {
+    receiveKill orElse receiveStartTimeout orElse {
       case ForwardStatusUpdate(update) if isFinished(update.taskState) =>
         becomeFinishing(jobRun.copy(
           status = JobRunStatus.Success,
@@ -337,10 +357,13 @@ object JobRunExecutorActor {
   case class Failed(jobResult: JobResult)
   case class Aborted(jobResult: JobResult)
 
+  case object StartTimeout
+
   case class ForwardStatusUpdate(update: TaskStateChangedEvent)
 
   def props(
     run:                        JobRun,
+    startingDeadline:           Option[Duration],
     promise:                    Promise[JobResult],
     persistenceActorRefFactory: (JobRunId, ActorContext) => ActorRef,
     launchQueue:                LaunchQueue,
@@ -349,7 +372,7 @@ object JobRunExecutorActor {
     clock:                      Clock,
     behavior:                   Behavior
   ): Props = Props(
-    new JobRunExecutorActor(run, promise, persistenceActorRefFactory,
+    new JobRunExecutorActor(run, startingDeadline, promise, persistenceActorRefFactory,
       launchQueue, taskTracker, driverHolder, clock, behavior)
   )
 }
