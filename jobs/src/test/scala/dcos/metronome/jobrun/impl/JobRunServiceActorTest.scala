@@ -89,7 +89,7 @@ class JobRunServiceActorTest extends TestKit(ActorSystem("test")) with FunSuiteL
     val actor = f.serviceActor
 
     When("An existing jobRun is queried")
-    actor ! TriggerJobRun(f.jobSpec)
+    actor ! TriggerJobRun(f.jobSpec, None)
 
     Then("The list of started job runs is returned")
     val started = expectMsgClass(classOf[StartedJobRun])
@@ -102,7 +102,7 @@ class JobRunServiceActorTest extends TestKit(ActorSystem("test")) with FunSuiteL
     Given("An empty service")
     val f = new Fixture
     val actor = f.serviceActor
-    actor ! TriggerJobRun(f.jobSpec)
+    actor ! TriggerJobRun(f.jobSpec, None)
     val startedRun = expectMsgClass(classOf[StartedJobRun])
 
     When("The job finished")
@@ -118,7 +118,7 @@ class JobRunServiceActorTest extends TestKit(ActorSystem("test")) with FunSuiteL
     Given("An empty service")
     val f = new Fixture
     val actor = f.serviceActor
-    actor ! TriggerJobRun(f.jobSpec)
+    actor ! TriggerJobRun(f.jobSpec, None)
     val startedRun = expectMsgClass(classOf[StartedJobRun])
 
     When("The job aborted")
@@ -134,7 +134,7 @@ class JobRunServiceActorTest extends TestKit(ActorSystem("test")) with FunSuiteL
     Given("An empty service")
     val f = new Fixture
     val actor = f.serviceActor
-    actor ! TriggerJobRun(f.jobSpec)
+    actor ! TriggerJobRun(f.jobSpec, None)
     val startedRun = expectMsgClass(classOf[StartedJobRun])
 
     When("The job finished")
@@ -150,7 +150,7 @@ class JobRunServiceActorTest extends TestKit(ActorSystem("test")) with FunSuiteL
     Given("A service with 2 jobRuns")
     val f = new Fixture
     val actor = f.serviceActor
-    actor ! TriggerJobRun(f.jobSpec)
+    actor ! TriggerJobRun(f.jobSpec, None)
     val startedRun = expectMsgClass(classOf[StartedJobRun])
 
     When("An existing jobRun is queried")
@@ -180,8 +180,8 @@ class JobRunServiceActorTest extends TestKit(ActorSystem("test")) with FunSuiteL
     val clock = new FixedClock(DateTime.parse("2016-06-01T08:50:12.000Z"))
 
     def run() = {
-      val jobRun = new JobRun(JobRunId(jobSpec), jobSpec, JobRunStatus.Active, clock.now(), None, Map.empty[Task.Id, JobRunTask])
-      new StartedJobRun(jobRun, Future.successful(JobResult(jobRun)))
+      val jobRun = new JobRun(JobRunId(jobSpec), jobSpec, JobRunStatus.Active, clock.now(), None, None, Map.empty[Task.Id, JobRunTask])
+      StartedJobRun(jobRun, Future.successful(JobResult(jobRun)))
     }
     val run1 = run()
     val run2 = run()

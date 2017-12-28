@@ -25,7 +25,6 @@ import scala.concurrent.duration.Duration
   */
 class JobRunExecutorActor(
     run:                        JobRun,
-    startingDeadline:           Option[Duration],
     promise:                    Promise[JobResult],
     persistenceActorRefFactory: (JobRunId, ActorContext) => ActorRef,
     launchQueue:                LaunchQueue,
@@ -93,10 +92,11 @@ class JobRunExecutorActor(
   def scheduleTimeout(): Unit = {
     import scala.concurrent.duration._
 
-    startingDeadline.foreach { deadline =>
+    jobRun.startingDeadline.foreach { deadline =>
       val now = clock.now()
       val from = run.createdAt.plus(deadline.toMillis)
       val timeout = Seconds.secondsBetween(now, from).getSeconds.seconds
+      log.info(s"Timeout scheduled for ${jobRun.id} at $timeout")
       startingDeadlineTimer = Some(context.system.scheduler.scheduleOnce(timeout, self, StartTimeout))
     }
   }
@@ -187,11 +187,11 @@ class JobRunExecutorActor(
   }
 
   def becomeAborting(): Unit = {
-    log.info(s"Execution of JobRun ${jobRun.id} has been aborted")
     // kill all running tasks
     jobRun.tasks.values.filter(t => isActive(t.status)).foreach { t =>
       driverHolder.driver.foreach(_.killTask(t.id.mesosTaskId))
     }
+    log.info(s"Purging $runSpecId")
     launchQueue.purge(runSpecId)
 
     // Abort the jobRun
@@ -234,7 +234,7 @@ class JobRunExecutorActor(
 
   def receiveStartTimeout: Receive = {
     case StartTimeout =>
-      log.info(s"StartingDeadline timeout of ${startingDeadline.get} expired for JobRun ${jobRun.id} created at ${jobRun.createdAt}")
+      log.info(s"StartingDeadline timeout of ${jobRun.startingDeadline.get} expired for JobRun ${jobRun.id} created at ${jobRun.createdAt}")
       becomeAborting()
   }
 
@@ -374,7 +374,6 @@ object JobRunExecutorActor {
 
   def props(
     run:                        JobRun,
-    startingDeadline:           Option[Duration],
     promise:                    Promise[JobResult],
     persistenceActorRefFactory: (JobRunId, ActorContext) => ActorRef,
     launchQueue:                LaunchQueue,
@@ -383,7 +382,7 @@ object JobRunExecutorActor {
     clock:                      Clock,
     behavior:                   Behavior
   ): Props = Props(
-    new JobRunExecutorActor(run, startingDeadline, promise, persistenceActorRefFactory,
+    new JobRunExecutorActor(run, promise, persistenceActorRefFactory,
       launchQueue, taskTracker, driverHolder, clock, behavior)
   )
 }
