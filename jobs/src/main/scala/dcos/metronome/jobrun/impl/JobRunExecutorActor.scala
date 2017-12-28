@@ -47,7 +47,7 @@ class JobRunExecutorActor(
   val runSpecId = jobRun.id.toPathId
 
   override def preStart(): Unit = {
-    scheduleStartingDeadlineTimeout()
+    scheduleTimeout()
 
     jobRun.status match {
       case JobRunStatus.Initial => becomeCreating()
@@ -90,7 +90,7 @@ class JobRunExecutorActor(
     context.become(starting)
   }
 
-  def scheduleStartingDeadlineTimeout(): Unit = {
+  def scheduleTimeout(): Unit = {
     import scala.concurrent.duration._
 
     startingDeadline.foreach { deadline =>
@@ -234,7 +234,7 @@ class JobRunExecutorActor(
 
   def receiveStartTimeout: Receive = {
     case StartTimeout =>
-      log.info(s"Start timed out for JobRun ${jobRun.id} with deadline ${startingDeadline.get}")
+      log.info(s"StartingDeadline timeout of ${startingDeadline.get} expired for JobRun ${jobRun.id} created at ${jobRun.createdAt}")
       becomeAborting()
   }
 
@@ -278,7 +278,7 @@ class JobRunExecutorActor(
   }
 
   def active: Receive = around {
-    receiveKill orElse receiveStartTimeout orElse {
+    receiveKill orElse {
       case ForwardStatusUpdate(update) if isFinished(update.taskState) =>
         becomeFinishing(jobRun.copy(
           status = JobRunStatus.Success,
